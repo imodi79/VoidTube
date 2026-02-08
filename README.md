@@ -1,47 +1,103 @@
 ![VoidTube Logo](gitlogo.webp)
 
-# YT Desk (Electron mini-klienst)
+# VoidTube
 
-Egyszerű desktop alkalmazás, amely több YouTube-lejátszót kezel: bal oldali listába felvehetsz tetszőleges videót (URL vagy ID), a fő ablakban egy videót nézel vagy grid módban több lejátszó is futhat, clean módban eltűnik minden UI.
+VoidTube is a focused desktop YouTube player. It keeps playback clean, puts your channels on the right, and a persistent play history on the left.
 
-## Futtatás
+## Project status / maintenance
 
-1) Függjőségek telepítése (internet kell):  
-`npm install`
+You can use this project for anything and for as long as you want. I am happy if it helps you.
+This is a personal project, so do not expect heavy maintenance. I may fix serious bugs from time to time.
+Contributions and forks are welcome.
 
-2) Indítás:  
-`npm start`
+## What it does
 
-Megjegyzés: a renderer egy lokális HTTP szerverről töltődik (127.0.0.1, dinamikus port), hogy a YouTube IFrame API érvényes origin-t kapjon. Nincs külső függőség, a szerver a main processben fut.
-Alapértelmezett port: 38999 (ha foglalt, 39000). A stabil port miatt a localStorage/Google tokenek megmaradnak újraindítás után is.
+- Play a single video in the main view, or browse search/channel results in a grid.
+- Keep a local play history with resume position per video.
+- Control volume globally from one slider.
+- Browse your subscriptions in the right sidebar (ordered by your clicks / recency).
+- Toggle a full, clean view for distraction-free watching.
+- If a video cannot be embedded, open it in the browser instead.
 
-### Szükséges Google/YT adatok
+## How it works (short)
 
-Állítsd be az adatokat kétféleképp:
+VoidTube uses the YouTube IFrame Player API for playback.  
+It uses the YouTube Data API for search, subscriptions, and channel browsing.  
+Auth is handled via the OAuth device code flow.
 
-1) Lokális fájl: `config.local.json` (git-ignorált). Minta: `config.example.json`.  
-2) Vagy környezeti változóként indulás előtt:  
-   - `YT_CLIENT_ID` – OAuth 2.0 Client ID (Desktop / Installed app)  
-   - `YT_CLIENT_SECRET` – opcionális, de refresh tokenhez ajánlott  
-   - `YT_API_KEY` – kereséshez használható (auth nélkül is), de auth esetén Bearer-t használ.
+## Install & run (dev)
 
-Auth flow: eszközkód (device code). A bal oldali “Bejelentkezés” gomb megnyitja a verification URL-t, a böngészőben jóváhagyás után a kliens automatikusan poll-ozza a tokent. Token localStorage-ben tárolódik (nem titkosítva).
+```bash
+npm install
+npm run dev
+```
 
-## Jelenlegi funkciók
+The renderer is served from a local HTTP server (127.0.0.1) to provide a valid origin for the IFrame API.  
+Default port is `38999` (falls back to `39000` if busy), so localStorage and tokens remain stable.
 
-- URL/ID beolvasása, oEmbed alapján cím lekérése (ha elérhető).  
-- Lista kezelése (lejátszás, törlés), sorrend legutóbb hozzáadott felül.  
-- Fő lejátszó, vagy grid mód minden videóval (muted).  
-- Clean mód: csak a fő videó látszik, UI nélkül.  
-- Megnyitás rendszer-böngészőben.
-- YouTube keresés (Data API search).  
-- Feliratkozások listázása (YouTube Data API, auth kell), csatorna megnyitás + legutóbbi videó hozzáadása.
-- IFrame Player API: play/pause, mute/unmute (single és grid).
+## Configuration
 
-## Korlátok / TODO
+You have two options:
 
-- Telepítéshez hálózat kell (`npm install`), jelen környezetben blokkolt volt.  
-- Token localStorage-ben, nincs titkosítás vagy több profil.  
-- Keresés max 8 találat, nincs lapozás.  
-- Feliratkozások max 25, nincs feed-sorrend (YouTube API korlát).  
-- Nincs CI/test; linter placeholder.
+1) **In-app (recommended for builds)**  
+On the sign-in overlay, fill in:
+- **Client ID**
+- **Client secret** (optional, but recommended for refresh tokens)
+- **API key**
+
+These values are saved locally on your device (localStorage + Electron userData).  
+They are **not** committed to git.
+
+2) **Local config or env vars (dev)**  
+- `config.local.json` (ignored by git). Example: `config.example.json`
+- Or environment variables before launch:
+  - `YT_CLIENT_ID`
+  - `YT_CLIENT_SECRET` (optional)
+  - `YT_API_KEY`
+
+## Google Cloud setup (quick guide)
+
+You need your own Google Cloud project to use the YouTube Data API.
+
+1) Create a project in Google Cloud Console  
+https://console.cloud.google.com/
+
+2) Enable **YouTube Data API v3**  
+https://console.cloud.google.com/apis/library/youtube.googleapis.com
+
+3) Create an OAuth Client ID  
+https://console.cloud.google.com/apis/credentials  
+Recommended type: **TVs and Limited Input devices** (device code flow).  
+Copy the **Client ID** (and **Client Secret** if provided).
+
+4) Create an API key (same Credentials page)  
+Copy the **API key**.
+
+5) Paste the values into the sign-in overlay in VoidTube.
+
+Helpful docs:
+- YouTube Data API overview: https://developers.google.com/youtube/v3/getting-started
+- OAuth device flow: https://developers.google.com/identity/protocols/oauth2/limited-input-device
+
+## Build
+
+Icons are generated from `resource/logo_sign.svg`.
+
+```bash
+npm run generate:icons
+npm run build:mac
+npm run build:win
+npm run build:linux
+```
+
+Build output goes to `dist/`.
+
+## Notes
+
+- Tokens are stored locally (not encrypted).
+- API usage is subject to YouTube quota limits for your project.
+- `config.local.json`, `build/`, and `dist/` are git-ignored.
+
+## License
+
+MIT.
