@@ -69,6 +69,36 @@
           <div class="empty-state">Add your first video, then play from the list.</div>
           <div class="signin" id="signinScreen">
             <div class="signin-card">
+              <div class="signin-fields">
+                <div class="signin-field">
+                  <label for="clientIdInput">Client ID</label>
+                  <input
+                    id="clientIdInput"
+                    type="text"
+                    placeholder="YOUR_CLIENT_ID.apps.googleusercontent.com"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="signin-field">
+                  <label for="clientSecretInput">Client secret</label>
+                  <input
+                    id="clientSecretInput"
+                    type="password"
+                    placeholder="YOUR_CLIENT_SECRET"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="signin-field">
+                  <label for="apiKeyInput">API key</label>
+                  <input
+                    id="apiKeyInput"
+                    type="text"
+                    placeholder="YOUR_API_KEY"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="signin-hint">Saved locally on this device.</div>
+              </div>
               <button id="signinBtn">Sign in</button>
               <div id="signinStatus" class="signin-status"></div>
               <div class="code-box">

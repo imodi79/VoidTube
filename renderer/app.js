@@ -16,20 +16,25 @@ const signinBtnEl = document.getElementById("signinBtn");
 const deviceCodeEl = document.getElementById("deviceCode");
 const signOutEl = document.getElementById("signOut");
 const signinStatusEl = document.getElementById("signinStatus");
+const clientIdInputEl = document.getElementById("clientIdInput");
+const clientSecretInputEl = document.getElementById("clientSecretInput");
+const apiKeyInputEl = document.getElementById("apiKeyInput");
 
 const STORAGE_KEY = "yt-desk-state-v3";
 const TOKEN_KEY = "yt-desk-token-v1";
 const CHANNEL_CACHE_KEY = "yt-desk-channel-cache-v1";
 const SUBS_CACHE_KEY = "yt-desk-subs-cache-v1";
 const CHANNEL_CLICKS_KEY = "yt-desk-channel-clicks-v1";
-const NEW_WINDOW_MS = 7 * 24 * 3600 * 1000; // 7 nap új jelzéshez
+const CONFIG_STORAGE_KEY = "voidtube-config-v1";
+const NEW_WINDOW_MS = 7 * 24 * 3600 * 1000; // 7 days for new badge
 const MAX_HISTORY = 10000;
-const CONFIG = window.appBridge?.config || { clientId: "", clientSecret: "", apiKey: "", debug: false };
+const BASE_CONFIG = window.appBridge?.config || { clientId: "", clientSecret: "", apiKey: "", debug: false };
+let runtimeConfig = buildRuntimeConfig();
 const DEBUG =
-  CONFIG.debug === true ||
-  CONFIG.debug === 1 ||
-  CONFIG.debug === "1" ||
-  CONFIG.debug === "true";
+  runtimeConfig.debug === true ||
+  runtimeConfig.debug === 1 ||
+  runtimeConfig.debug === "1" ||
+  runtimeConfig.debug === "true";
 const ICON_EXPAND = '<i class="fa-solid fa-expand" aria-hidden="true"></i>';
 const ICON_COMPRESS = '<i class="fa-solid fa-compress" aria-hidden="true"></i>';
 const ICON_PLAY = '<i class="fa-solid fa-play" aria-hidden="true"></i>';
@@ -77,6 +82,54 @@ function log(...args) {
 function warn(...args) {
   if (!DEBUG) return;
   console.warn("[YT]", ...args);
+}
+
+function loadUserConfig() {
+  try {
+    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveUserConfig(next) {
+  localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(next));
+}
+
+function buildRuntimeConfig() {
+  const stored = loadUserConfig() || {};
+  return {
+    clientId: stored.clientId ?? BASE_CONFIG.clientId ?? "",
+    clientSecret: stored.clientSecret ?? BASE_CONFIG.clientSecret ?? "",
+    apiKey: stored.apiKey ?? BASE_CONFIG.apiKey ?? "",
+    debug: BASE_CONFIG.debug,
+  };
+}
+
+function syncConfigFromInputs() {
+  if (!clientIdInputEl && !clientSecretInputEl && !apiKeyInputEl) return;
+  const next = {
+    clientId: clientIdInputEl?.value.trim() || "",
+    clientSecret: clientSecretInputEl?.value.trim() || "",
+    apiKey: apiKeyInputEl?.value.trim() || "",
+  };
+  runtimeConfig = { ...runtimeConfig, ...next };
+  saveUserConfig(next);
+  updateSigninButtonState();
+}
+
+function fillConfigInputs() {
+  if (clientIdInputEl) clientIdInputEl.value = runtimeConfig.clientId || "";
+  if (clientSecretInputEl) clientSecretInputEl.value = runtimeConfig.clientSecret || "";
+  if (apiKeyInputEl) apiKeyInputEl.value = runtimeConfig.apiKey || "";
+  updateSigninButtonState();
+}
+
+function updateSigninButtonState() {
+  if (!signinBtnEl) return;
+  signinBtnEl.disabled = !runtimeConfig.clientId;
 }
 
 function getRegionCode() {
@@ -849,13 +902,19 @@ function renderAuthState() {
   const authed = hasValidSession();
   if (authed) {
     log("auth state: logged in");
-    if (signinStatusEl) signinStatusEl.textContent = "";
+    if (signinStatusEl) {
+      signinStatusEl.textContent = "";
+      signinStatusEl.style.display = "none";
+    }
     void requestSubscriptions();
     void ensureFreshToken();
     return;
   }
   log("auth state: logged out");
-  if (signinStatusEl) signinStatusEl.textContent = "";
+  fillConfigInputs();
+  if (signinStatusEl && !signinStatusEl.textContent) {
+    signinStatusEl.style.display = "none";
+  }
 }
 
 function ensureYTReady() {
@@ -1156,12 +1215,12 @@ async function ensureAccessToken() {
   }
   log("refreshing access token");
   const body = new URLSearchParams({
-    client_id: CONFIG.clientId,
+    client_id: runtimeConfig.clientId,
     grant_type: "refresh_token",
     refresh_token: token.refresh_token,
   });
-  if (CONFIG.clientSecret) {
-    body.append("client_secret", CONFIG.clientSecret);
+  if (runtimeConfig.clientSecret) {
+    body.append("client_secret", runtimeConfig.clientSecret);
   }
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -1183,8 +1242,13 @@ async function ensureAccessToken() {
 }
 
 async function startDeviceLogin() {
-  if (!CONFIG.clientId) {
-    alert("Állítsd be a YT_CLIENT_ID környezeti változót az OAuth-hoz.");
+  syncConfigFromInputs();
+  if (!runtimeConfig.clientId) {
+    if (signinStatusEl) {
+      signinStatusEl.textContent = "Add Client ID to sign in.";
+      signinStatusEl.style.display = "block";
+    }
+    clientIdInputEl?.focus();
     return;
   }
   log("start device login");
@@ -1192,7 +1256,7 @@ async function startDeviceLogin() {
   if (signinStatusEl) signinStatusEl.textContent = "Waiting for approval…";
   if (signinStatusEl) signinStatusEl.style.display = "block";
   const body = new URLSearchParams({
-    client_id: CONFIG.clientId,
+    client_id: runtimeConfig.clientId,
     scope: "https://www.googleapis.com/auth/youtube.readonly",
   });
   let data;
@@ -1205,13 +1269,13 @@ async function startDeviceLogin() {
     if (!res.ok) throw new Error("Device code request failed.");
     data = await res.json();
   } catch (err) {
-    alert("Device kód lekérés sikertelen.");
+    alert("Failed to request device code.");
     signinBtnEl.disabled = false;
     if (signinStatusEl) signinStatusEl.textContent = "Failed to start login. Try again.";
     return;
   }
   if (signinStatusEl)
-    signinStatusEl.textContent = `Nyisd meg: ${data.verification_url}, kód: ${data.user_code}`;
+    signinStatusEl.textContent = `Open: ${data.verification_url}, code: ${data.user_code}`;
   safeOpenExternal(data.verification_url);
   lastDeviceCode = data.user_code;
   if (deviceCodeEl) deviceCodeEl.textContent = data.user_code;
@@ -1228,12 +1292,12 @@ async function startDeviceLogin() {
   let pollInterval = (data.interval || 5) * 1000;
   const poll = async () => {
     const pollBody = new URLSearchParams({
-      client_id: CONFIG.clientId,
+      client_id: runtimeConfig.clientId,
       device_code: data.device_code,
       grant_type: "urn:ietf:params:oauth:grant-type:device_code",
     });
-    if (CONFIG.clientSecret) {
-      pollBody.append("client_secret", CONFIG.clientSecret);
+    if (runtimeConfig.clientSecret) {
+      pollBody.append("client_secret", runtimeConfig.clientSecret);
     }
     let payload;
     try {
@@ -1264,7 +1328,7 @@ async function startDeviceLogin() {
       return;
     }
     if (payload.error) {
-      if (signinStatusEl) signinStatusEl.textContent = `Auth hiba: ${payload.error}`;
+      if (signinStatusEl) signinStatusEl.textContent = `Auth error: ${payload.error}`;
       log("auth error", payload.error);
       signinBtnEl.disabled = false;
       if (signinStatusEl) signinStatusEl.textContent = `Error: ${payload.error}`;
@@ -1325,10 +1389,10 @@ async function ytFetch(path, params = {}, needsAuth = false) {
   const headers = {};
   if (needsAuth) {
     const token = await ensureAccessToken();
-    if (!token) throw new Error("Nincs érvényes token.");
+    if (!token) throw new Error("No valid token.");
     headers.Authorization = `Bearer ${token}`;
-  } else if (CONFIG.apiKey) {
-    url.searchParams.set("key", CONFIG.apiKey);
+  } else if (runtimeConfig.apiKey) {
+    url.searchParams.set("key", runtimeConfig.apiKey);
   }
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) {
@@ -1337,7 +1401,7 @@ async function ytFetch(path, params = {}, needsAuth = false) {
       const t = await res.json();
       detail = t.error?.message ? ` – ${t.error.message}` : "";
     } catch (_) {}
-    throw new Error(`YouTube API hiba: ${res.status}${detail}`);
+    throw new Error(`YouTube API error: ${res.status}${detail}`);
   }
   return res.json();
 }
@@ -1429,7 +1493,7 @@ async function handleSearch() {
     render();
   } catch (e) {
     if (requestId !== displayRequestId) return;
-    setMessage(`Hiba: ${e.message}`);
+    setMessage(`Error: ${e.message}`);
   }
 }
 
@@ -1523,12 +1587,12 @@ async function loadSubscriptions(pageToken = null, collected = []) {
 
     renderSubscriptions(items);
   } catch (e) {
-    if (e?.message?.includes("Nincs érvényes token")) {
+    if (e?.message?.includes("No valid token")) {
       handleAuthExpired("Session expired. Please sign in again.");
       subsListEl.textContent = "Sign in to load channels.";
       return;
     }
-    subsListEl.textContent = `Auth vagy kvóta hiba: ${e.message}`;
+    subsListEl.textContent = `Auth or quota error: ${e.message}`;
   }
 }
 
@@ -1546,7 +1610,7 @@ async function requestSubscriptions() {
 async function addLatestFromChannel(channelId, channelTitle = "") {
   const cacheHit = channelCache[channelId];
   const now = Date.now();
-  const maxAge = 3 * 60 * 60 * 1000; // 3 óra
+  const maxAge = 3 * 60 * 60 * 1000; // 3 hours
   const requestId = nextDisplayRequestId();
   let items;
   if (cacheHit && now - cacheHit.ts < maxAge) {
@@ -1572,14 +1636,14 @@ async function addLatestFromChannel(channelId, channelTitle = "") {
       saveChannelCache();
     } catch (e) {
       if (requestId !== displayRequestId) return;
-      alert(`Hiba: ${e.message}`);
+      alert(`Error: ${e.message}`);
       return;
     }
   }
 
   if (!items.length) {
     if (requestId !== displayRequestId) return;
-    alert("Nem találtam videót.");
+    alert("No videos found.");
     return;
   }
 
@@ -1599,7 +1663,7 @@ async function addLatestFromChannel(channelId, channelTitle = "") {
   }
 
   if (requestId !== displayRequestId) return;
-  // csak thumb listát mutatunk, nem játszunk le azonnal
+  // Only show the thumbnail list; do not autoplay.
   state.displayThumbs = {
     items: filtered,
     openUrl: items.length >= 30 ? `https://www.youtube.com/channel/${channelId}` : null,
@@ -1633,6 +1697,14 @@ if (deviceCodeEl)
     if (!lastDeviceCode) return;
     navigator.clipboard?.writeText(lastDeviceCode);
   });
+[
+  clientIdInputEl,
+  clientSecretInputEl,
+  apiKeyInputEl,
+].forEach((input) => {
+  if (!input) return;
+  input.addEventListener("input", syncConfigFromInputs);
+});
 
 if (volumeSliderEl) {
   volumeSliderEl.value = String(state.volume ?? 70);

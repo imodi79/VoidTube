@@ -9,12 +9,54 @@
     "dev": "electron .",
     "lint": "echo \"No lint configured\"",
     "test": "echo \"No tests yet\"",
-    "sass": "sass renderer/styles.scss renderer/styles.css --watch"
+    "sass": "sass renderer/styles.scss renderer/styles.css --watch",
+    "generate:icons": "node scripts/generate-icons.js",
+    "build:mac": "npm run generate:icons && electron-builder --mac",
+    "build:win": "npm run generate:icons && electron-builder --win",
+    "build:linux": "npm run generate:icons && electron-builder --linux"
   },
   "keywords": [],
   "license": "MIT",
   "dependencies": {
-    "electron": "^29.2.0",
     "sass": "^1.71.1"
+  },
+  "devDependencies": {
+    "electron": "^29.2.0",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.0",
+    "sharp": "^0.33.2"
+  },
+  "build": {
+    "appId": "com.voidtube.app",
+    "productName": "VoidTube",
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "resource/**/*",
+      "package.json",
+      "!config.local.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.video",
+      "icon": "build/icon.png"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
   }
 }

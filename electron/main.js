@@ -31,7 +31,9 @@ const APP_CONFIG = {
   debug: Boolean(debugConfig),
 };
 const APP_NAME = "VoidTube";
-const ICON_PATH = path.join(__dirname, "..", "resource", "logo_sign.svg");
+const PNG_ICON_PATH = path.join(__dirname, "..", "resource", "logo_sign.png");
+const SVG_ICON_PATH = path.join(__dirname, "..", "resource", "logo_sign.svg");
+const ICON_PATH = fs.existsSync(PNG_ICON_PATH) ? PNG_ICON_PATH : SVG_ICON_PATH;
 const WINDOW_STATE_FILE = "window-state.json";
 
 function getTokenPath() {
