@@ -24,7 +24,12 @@ const SUBS_CACHE_KEY = "yt-desk-subs-cache-v1";
 const CHANNEL_CLICKS_KEY = "yt-desk-channel-clicks-v1";
 const NEW_WINDOW_MS = 7 * 24 * 3600 * 1000; // 7 nap új jelzéshez
 const MAX_HISTORY = 10000;
-const CONFIG = window.appBridge?.config || { clientId: "", clientSecret: "", apiKey: "" };
+const CONFIG = window.appBridge?.config || { clientId: "", clientSecret: "", apiKey: "", debug: false };
+const DEBUG =
+  CONFIG.debug === true ||
+  CONFIG.debug === 1 ||
+  CONFIG.debug === "1" ||
+  CONFIG.debug === "true";
 const ICON_EXPAND = '<i class="fa-solid fa-expand" aria-hidden="true"></i>';
 const ICON_COMPRESS = '<i class="fa-solid fa-compress" aria-hidden="true"></i>';
 const ICON_PLAY = '<i class="fa-solid fa-play" aria-hidden="true"></i>';
@@ -39,6 +44,7 @@ let player = null;
 let playerReady = false;
 let positionTimer = null;
 let activeLoadId = null;
+let pendingLoad = null;
 let ytReadyPromise = null;
 let channelCache = loadChannelCache();
 let subsCache = loadSubsCache();
@@ -46,6 +52,7 @@ let channelClicks = loadChannelClicks();
 let lastDeviceCode = "";
 let channelQueue = null;
 let uiMessage = "";
+let uiMessageAction = null;
 let playerShellEl = null;
 let playerHolderEl = null;
 let gridWrapEl = null;
@@ -55,10 +62,38 @@ let messageEl = null;
 let tokenCache = null;
 let tokenInitPromise = null;
 let tokenRefreshPromise = null;
+let subsLoaded = false;
+let subsLoading = false;
+let displayRequestId = 0;
+let blockedEmbeds = loadBlockedEmbeds();
+const BLOCKED_EMBED_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const BLOCKED_EMBED_MAX = 1000;
 
 function log(...args) {
-  // Basic console logging to trace auth/state.
+  if (!DEBUG) return;
   console.log("[YT]", ...args);
+}
+
+function warn(...args) {
+  if (!DEBUG) return;
+  console.warn("[YT]", ...args);
+}
+
+function getRegionCode() {
+  const lang = navigator.language || "";
+  const match = lang.match(/-([A-Z]{2})$/i);
+  if (match) return match[1].toUpperCase();
+  return "";
+}
+
+function nextDisplayRequestId() {
+  displayRequestId += 1;
+  return displayRequestId;
+}
+
+function filterBlockedEmbeds(items) {
+  if (!items.length) return [];
+  return items.filter((item) => !blockedEmbeds[item.id]);
 }
 
 function getSubsFilter() {
@@ -95,7 +130,7 @@ function loadState() {
       recentChannels: parsed.recentChannels || [],
     };
   } catch (e) {
-    console.warn("Failed to parse state", e);
+    warn("Failed to parse state", e);
     return {
       videos: [],
       selectedId: null,
@@ -165,10 +200,18 @@ async function ensureFreshToken() {
   if (tokenRefreshPromise) return tokenRefreshPromise;
   tokenRefreshPromise = (async () => {
     const token = loadToken();
-    if (!token || !tokenExpired(token)) return true;
-    if (!token.refresh_token) return false;
+    if (!token) return false;
+    if (!tokenExpired(token)) return true;
+    if (!token.refresh_token) {
+      handleAuthExpired("Session expired. Please sign in again.");
+      return false;
+    }
     const next = await ensureAccessToken();
-    return Boolean(next);
+    if (!next) {
+      handleAuthExpired("Session expired. Please sign in again.");
+      return false;
+    }
+    return true;
   })();
   try {
     return await tokenRefreshPromise;
@@ -227,6 +270,38 @@ function saveChannelClicks() {
   }
 }
 
+function loadBlockedEmbeds() {
+  try {
+    const raw = localStorage.getItem("yt-desk-blocked-embeds-v1");
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveBlockedEmbeds() {
+  try {
+    localStorage.setItem("yt-desk-blocked-embeds-v1", JSON.stringify(blockedEmbeds));
+  } catch (_) {
+    // ignore
+  }
+}
+
+function pruneBlockedEmbeds() {
+  const now = Date.now();
+  const entries = Object.entries(blockedEmbeds).filter(([, ts]) => now - ts < BLOCKED_EMBED_TTL_MS);
+  entries.sort((a, b) => b[1] - a[1]);
+  const trimmed = entries.slice(0, BLOCKED_EMBED_MAX);
+  blockedEmbeds = Object.fromEntries(trimmed);
+}
+
+function markEmbedBlocked(id) {
+  if (!id) return;
+  blockedEmbeds[id] = Date.now();
+  pruneBlockedEmbeds();
+  saveBlockedEmbeds();
+}
+
 function bumpChannelClick(channelId) {
   if (!channelId) return;
   channelClicks[channelId] = (channelClicks[channelId] || 0) + 1;
@@ -258,6 +333,38 @@ function clearToken() {
   if (res && typeof res.catch === "function") {
     res.catch(() => {});
   }
+}
+
+function handleAuthExpired(message) {
+  if (!tokenCache) return;
+  log("auth expired", message || "");
+  clearToken();
+  if (player && playerReady) {
+    player.stopVideo();
+  }
+  channelQueue = null;
+  if (signinStatusEl) {
+    signinStatusEl.textContent = message || "Session expired. Please sign in again.";
+    signinStatusEl.style.display = "block";
+  }
+  subsLoaded = false;
+  render();
+}
+
+function showPlaybackMessage(message, action = null) {
+  uiMessage = message || "Video not found.";
+  uiMessageAction = action;
+  state.displayThumbs = { items: [], openUrl: null, channelId: null };
+  state.selectedId = null;
+  activeLoadId = null;
+  channelQueue = null;
+  if (player && playerReady) {
+    player.stopVideo();
+  }
+  persist();
+  renderHistoryList();
+  renderPlayerArea();
+  updateViewToggle();
 }
 
 function tokenExpired(token) {
@@ -308,13 +415,14 @@ async function fetchTitle(videoId) {
     const data = await res.json();
     return data.title || null;
   } catch (e) {
-    console.warn("oEmbed title lookup failed", e);
+    warn("oEmbed title lookup failed", e);
     return null;
   }
 }
 
-function setMessage(msg) {
+function setMessage(msg, action = null) {
   uiMessage = msg || "";
+  uiMessageAction = action;
   renderPlayerArea();
 }
 
@@ -422,19 +530,38 @@ function startPositionTimer() {
   }, 20000);
 }
 
+function startEmbedPruneTimer() {
+  setInterval(() => {
+    pruneBlockedEmbeds();
+    saveBlockedEmbeds();
+  }, 12 * 60 * 60 * 1000);
+}
+function stopPositionTimer() {
+  if (!positionTimer) return;
+  clearInterval(positionTimer);
+  positionTimer = null;
+}
+
 function handlePlayerReady() {
   playerReady = true;
   if (typeof state.volume === "number") {
     player.setVolume(state.volume);
   }
   startPositionTimer();
+  if (pendingLoad) {
+    const { entry, autoplay, force } = pendingLoad;
+    pendingLoad = null;
+    void loadVideoByEntry(entry, { autoplay, force });
+    return;
+  }
   const current = getActiveVideo();
   if (current && activeLoadId !== current.id) {
     void loadVideoByEntry(current, { autoplay: false });
   }
 }
 
-function handlePlayerError() {
+function handlePlayerError(event) {
+  const errCode = event?.data;
   const currentId = state.selectedId;
   if (state.selectedId) {
     const idx = state.videos.findIndex((v) => v.id === state.selectedId);
@@ -449,7 +576,28 @@ function handlePlayerError() {
   if (playNextFromQueue(currentId)) {
     return;
   }
-  setMessage("Video not found.");
+  let message = "Video not found.";
+  if (errCode === 101 || errCode === 150) {
+    message = "Video can't be embedded.";
+    if (currentId) {
+      markEmbedBlocked(currentId);
+      if (state.displayThumbs?.items?.length) {
+        state.displayThumbs.items = state.displayThumbs.items.filter((item) => item.id !== currentId);
+      }
+    }
+  } else if (errCode === 2) {
+    message = "Invalid video ID.";
+  } else if (errCode === 100) {
+    message = "Video unavailable.";
+  }
+  const action =
+    (errCode === 101 || errCode === 150) && currentId
+      ? { label: "Open in browser", url: buildVideoUrl(currentId) }
+      : null;
+  setMessage(message, action);
+  renderHistoryList();
+  renderPlayerArea();
+  updateViewToggle();
 }
 
 function handlePlayerStateChange(event) {
@@ -476,18 +624,20 @@ function playNextFromQueue(currentId) {
     const found = channelQueue.ids.indexOf(currentId);
     if (found !== -1) baseIndex = found;
   }
-  const nextIndex = baseIndex + 1;
-  if (nextIndex >= channelQueue.ids.length) return false;
-  channelQueue.index = nextIndex;
-  const nextId = channelQueue.ids[nextIndex];
-  const meta = channelQueue.items.find((item) => item.id === nextId);
-  void playVideo({
-    id: nextId,
-    title: meta?.title,
-    channelTitle: meta?.channel,
-    sourceChannelId: channelQueue.channelId,
-  });
-  return true;
+  for (let nextIndex = baseIndex + 1; nextIndex < channelQueue.ids.length; nextIndex += 1) {
+    const nextId = channelQueue.ids[nextIndex];
+    if (!nextId) continue;
+    channelQueue.index = nextIndex;
+    const meta = channelQueue.items.find((item) => item.id === nextId);
+    void playVideo({
+      id: nextId,
+      title: meta?.title,
+      channelTitle: meta?.channel,
+      sourceChannelId: channelQueue.channelId,
+    });
+    return true;
+  }
+  return false;
 }
 
 async function ensurePlayer() {
@@ -513,7 +663,10 @@ async function ensurePlayer() {
 async function loadVideoByEntry(entry, { autoplay = true, force = false } = {}) {
   if (!entry) return;
   await ensurePlayer();
-  if (!playerReady) return;
+  if (!playerReady) {
+    pendingLoad = { entry, autoplay, force };
+    return;
+  }
   if (!force && activeLoadId === entry.id) return;
   const resume =
     entry.finished || !entry.lastPosition || entry.lastPosition < 1 ? 0 : Math.floor(entry.lastPosition);
@@ -532,6 +685,7 @@ async function playVideo(entry) {
   if (!entry || !entry.id) return;
   recordPosition(true);
   uiMessage = "";
+  uiMessageAction = null;
   const now = Date.now();
   const existing = upsertVideo({ ...entry, lastPlayedAt: now, finished: false });
   setActiveVideo(existing.id);
@@ -696,7 +850,7 @@ function renderAuthState() {
   if (authed) {
     log("auth state: logged in");
     if (signinStatusEl) signinStatusEl.textContent = "";
-    loadSubscriptions();
+    void requestSubscriptions();
     void ensureFreshToken();
     return;
   }
@@ -726,6 +880,7 @@ function renderPlayerArea() {
   messageEl.style.display = "none";
 
   if (!authed) {
+    updateViewToggle();
     return;
   }
 
@@ -734,6 +889,7 @@ function renderPlayerArea() {
     if (player && playerReady) {
       player.pauseVideo();
     }
+    updateViewToggle();
     return;
   }
 
@@ -741,11 +897,26 @@ function renderPlayerArea() {
   if (current) {
     playerShellEl.style.display = "block";
     void loadVideoByEntry(current, { autoplay: true });
+    updateViewToggle();
     return;
   }
 
   messageEl.style.display = "block";
-  messageEl.textContent = uiMessage || "Search or paste a YouTube URL to start.";
+  messageEl.textContent = "";
+  const text = document.createElement("span");
+  text.textContent = uiMessage || "Search or paste a YouTube URL to start.";
+  messageEl.appendChild(text);
+  if (uiMessageAction?.url) {
+    const spacer = document.createTextNode(" ");
+    messageEl.appendChild(spacer);
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "message-link";
+    link.textContent = uiMessageAction.label || "Open in browser";
+    link.onclick = () => safeOpenExternal(uiMessageAction.url);
+    messageEl.appendChild(link);
+  }
+  updateViewToggle();
 }
 
 function renderThumbGrid() {
@@ -777,12 +948,15 @@ function renderThumbGrid() {
     card.appendChild(img);
     card.appendChild(meta);
     card.onclick = () => {
+      if (!thumb.id) return;
       if (state.displayThumbs?.channelId) {
+        const queueItems = state.displayThumbs.items.filter((item) => item && item.id);
+        const queueIndex = queueItems.findIndex((item) => item.id === thumb.id);
         channelQueue = {
           channelId: state.displayThumbs.channelId,
-          ids: state.displayThumbs.items.map((item) => item.id),
-          items: state.displayThumbs.items,
-          index: idx,
+          ids: queueItems.map((item) => item.id),
+          items: queueItems,
+          index: queueIndex === -1 ? 0 : queueIndex,
         };
       } else {
         channelQueue = null;
@@ -957,16 +1131,15 @@ async function importPlaylist() {
 
 async function handleDirectPlay() {
   const raw = mainInputEl?.value || "";
+  if (mainInputEl) mainInputEl.value = "";
   const id = parseVideoId(raw);
   if (!id) {
-    state.displayThumbs = { items: [], openUrl: null, channelId: null };
-    setMessage("Video not found.");
+    showPlaybackMessage("Video not found.");
     return;
   }
   const title = await fetchTitle(id);
   if (!title) {
-    state.displayThumbs = { items: [], openUrl: null, channelId: null };
-    setMessage("Video not found.");
+    showPlaybackMessage("Video not found.");
     return;
   }
   channelQueue = null;
@@ -977,7 +1150,10 @@ async function ensureAccessToken() {
   const token = loadToken();
   if (!token) return null;
   if (!tokenExpired(token)) return token.access_token;
-  if (!token.refresh_token) return null;
+  if (!token.refresh_token) {
+    handleAuthExpired("Session expired. Please sign in again.");
+    return null;
+  }
   log("refreshing access token");
   const body = new URLSearchParams({
     client_id: CONFIG.clientId,
@@ -992,7 +1168,10 @@ async function ensureAccessToken() {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    handleAuthExpired("Session expired. Please sign in again.");
+    return null;
+  }
   const data = await res.json();
   const next = {
     access_token: data.access_token,
@@ -1016,18 +1195,21 @@ async function startDeviceLogin() {
     client_id: CONFIG.clientId,
     scope: "https://www.googleapis.com/auth/youtube.readonly",
   });
-  const res = await fetch("https://oauth2.googleapis.com/device/code", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) {
+  let data;
+  try {
+    const res = await fetch("https://oauth2.googleapis.com/device/code", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    if (!res.ok) throw new Error("Device code request failed.");
+    data = await res.json();
+  } catch (err) {
     alert("Device kód lekérés sikertelen.");
     signinBtnEl.disabled = false;
     if (signinStatusEl) signinStatusEl.textContent = "Failed to start login. Try again.";
     return;
   }
-  const data = await res.json();
   if (signinStatusEl)
     signinStatusEl.textContent = `Nyisd meg: ${data.verification_url}, kód: ${data.user_code}`;
   safeOpenExternal(data.verification_url);
@@ -1043,6 +1225,7 @@ async function startDeviceLogin() {
   }
   log("device code received", data.user_code);
 
+  let pollInterval = (data.interval || 5) * 1000;
   const poll = async () => {
     const pollBody = new URLSearchParams({
       client_id: CONFIG.clientId,
@@ -1052,17 +1235,32 @@ async function startDeviceLogin() {
     if (CONFIG.clientSecret) {
       pollBody.append("client_secret", CONFIG.clientSecret);
     }
-    const resp = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: pollBody,
-    });
-    const payload = await resp.json();
+    let payload;
+    try {
+      const resp = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: pollBody,
+      });
+      payload = await resp.json();
+    } catch (err) {
+      signinBtnEl.disabled = false;
+      if (signinStatusEl) signinStatusEl.textContent = "Network error. Try again.";
+      if (signinStatusEl) signinStatusEl.style.display = "block";
+      return;
+    }
     if (payload.error === "authorization_pending") {
       log("auth pending");
       if (signinStatusEl) signinStatusEl.textContent = "Approve in browser…";
       if (signinStatusEl) signinStatusEl.style.display = "block";
-      setTimeout(poll, data.interval * 1000);
+      setTimeout(poll, pollInterval);
+      return;
+    }
+    if (payload.error === "slow_down") {
+      pollInterval += 5000;
+      if (signinStatusEl) signinStatusEl.textContent = "Waiting for approval…";
+      if (signinStatusEl) signinStatusEl.style.display = "block";
+      setTimeout(poll, pollInterval);
       return;
     }
     if (payload.error) {
@@ -1073,9 +1271,10 @@ async function startDeviceLogin() {
       if (signinStatusEl) signinStatusEl.style.display = "block";
       return;
     }
+    const existing = loadToken();
     const token = {
       access_token: payload.access_token,
-      refresh_token: payload.refresh_token,
+      refresh_token: payload.refresh_token || existing?.refresh_token || null,
       expires_at: Date.now() + payload.expires_in * 1000,
     };
     saveToken(token);
@@ -1101,13 +1300,20 @@ function logout() {
   if (subsFilterEl) subsFilterEl.value = "";
   channelQueue = null;
   uiMessage = "";
+  uiMessageAction = null;
   state.displayThumbs = { items: [], openUrl: null, channelId: null };
-  state.videos = [];
-  state.selectedId = null;
   activeLoadId = null;
   if (player && playerReady) {
     player.stopVideo();
   }
+  stopPositionTimer();
+  subsCache = { ts: 0, items: [] };
+  saveSubsCache();
+  channelCache = {};
+  saveChannelCache();
+  blockedEmbeds = {};
+  saveBlockedEmbeds();
+  subsLoaded = false;
   render();
 }
 
@@ -1139,7 +1345,16 @@ async function ytFetch(path, params = {}, needsAuth = false) {
 async function handleSearch() {
   const q = mainInputEl?.value.trim() || "";
   if (!q) return;
+  if (!hasValidSession()) {
+    if (signinStatusEl) {
+      signinStatusEl.textContent = "Sign in to search.";
+      signinStatusEl.style.display = "block";
+    }
+    return;
+  }
+  if (mainInputEl) mainInputEl.value = "";
   state.displayThumbs = { items: [], openUrl: null, channelId: null };
+  const requestId = nextDisplayRequestId();
   setMessage("Searching...");
   try {
     const data = await ytFetch(
@@ -1148,24 +1363,64 @@ async function handleSearch() {
         part: "snippet",
         q,
         type: "video",
+        videoEmbeddable: "true",
+        videoSyndicated: "true",
         maxResults: 50,
       },
-      false
+      true
     );
-    const items = data.items || [];
-    if (!items.length) {
+    if (requestId !== displayRequestId) return;
+    const searchItems = (data.items || []).filter((v) => v?.id?.videoId);
+    if (!searchItems.length) {
+      if (requestId !== displayRequestId) return;
       setMessage("No results.");
       return;
     }
+
+    const ids = searchItems.map((v) => v.id.videoId).filter(Boolean);
+    const details = await ytFetch(
+      "videos",
+      {
+        part: "snippet,status,contentDetails,player",
+        id: ids.join(","),
+        maxResults: 50,
+      },
+      true
+    );
+    if (requestId !== displayRequestId) return;
+    const detailsById = new Map((details.items || []).map((item) => [item.id, item]));
+    const region = getRegionCode();
+    let filtered = ids
+      .map((id) => detailsById.get(id))
+      .filter((item) => {
+        if (!item) return false;
+        if (item.status?.privacyStatus === "private") return false;
+        if (item.status?.embeddable !== true) return false;
+        if (!item.player?.embedHtml) return false;
+        const restriction = item.contentDetails?.regionRestriction;
+        if (region) {
+          if (Array.isArray(restriction?.blocked) && restriction.blocked.includes(region)) return false;
+          if (Array.isArray(restriction?.allowed) && !restriction.allowed.includes(region)) return false;
+        }
+        return true;
+      });
+    filtered = filterBlockedEmbeds(filtered);
+    if (!filtered.length) {
+      if (requestId !== displayRequestId) return;
+      setMessage("No results.");
+      return;
+    }
+
+    if (requestId !== displayRequestId) return;
     state.displayThumbs = {
-      items: items.map((v) => ({
-        id: v.id.videoId,
+      items: filtered.map((v) => ({
+        id: v.id,
         title: v.snippet.title,
         channel: v.snippet.channelTitle,
         channelId: v.snippet.channelId || null,
         thumb: v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.high?.url || "",
       })),
-      openUrl: items.length >= 50
+      openUrl: searchItems.length >= 50
         ? `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`
         : null,
       channelId: null,
@@ -1173,6 +1428,7 @@ async function handleSearch() {
     uiMessage = "";
     render();
   } catch (e) {
+    if (requestId !== displayRequestId) return;
     setMessage(`Hiba: ${e.message}`);
   }
 }
@@ -1267,7 +1523,23 @@ async function loadSubscriptions(pageToken = null, collected = []) {
 
     renderSubscriptions(items);
   } catch (e) {
+    if (e?.message?.includes("Nincs érvényes token")) {
+      handleAuthExpired("Session expired. Please sign in again.");
+      subsListEl.textContent = "Sign in to load channels.";
+      return;
+    }
     subsListEl.textContent = `Auth vagy kvóta hiba: ${e.message}`;
+  }
+}
+
+async function requestSubscriptions() {
+  if (subsLoading || subsLoaded) return;
+  subsLoading = true;
+  try {
+    await loadSubscriptions();
+    subsLoaded = hasValidSession();
+  } finally {
+    subsLoading = false;
   }
 }
 
@@ -1275,6 +1547,7 @@ async function addLatestFromChannel(channelId, channelTitle = "") {
   const cacheHit = channelCache[channelId];
   const now = Date.now();
   const maxAge = 3 * 60 * 60 * 1000; // 3 óra
+  const requestId = nextDisplayRequestId();
   let items;
   if (cacheHit && now - cacheHit.ts < maxAge) {
     items = cacheHit.items;
@@ -1288,32 +1561,47 @@ async function addLatestFromChannel(channelId, channelTitle = "") {
           order: "date",
           maxResults: 30,
           type: "video",
+          videoEmbeddable: "true",
+          videoSyndicated: "true",
         },
         true
       );
-      items = data.items || [];
+      if (requestId !== displayRequestId) return;
+      items = (data.items || []).filter((v) => v?.id?.videoId);
       channelCache[channelId] = { ts: now, items };
       saveChannelCache();
     } catch (e) {
+      if (requestId !== displayRequestId) return;
       alert(`Hiba: ${e.message}`);
       return;
     }
   }
 
   if (!items.length) {
+    if (requestId !== displayRequestId) return;
     alert("Nem találtam videót.");
     return;
   }
 
+  if (requestId !== displayRequestId) return;
+  const candidate = items.map((v) => ({
+    id: v.id.videoId,
+    title: v.snippet.title,
+    channel: v.snippet.channelTitle,
+    channelId: v.snippet.channelId || channelId,
+    thumb: v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.high?.url || "",
+  }));
+  const filtered = filterBlockedEmbeds(candidate);
+  if (!filtered.length) {
+    if (requestId !== displayRequestId) return;
+    setMessage("No results.");
+    return;
+  }
+
+  if (requestId !== displayRequestId) return;
   // csak thumb listát mutatunk, nem játszunk le azonnal
   state.displayThumbs = {
-    items: items.map((v) => ({
-      id: v.id.videoId,
-      title: v.snippet.title,
-      channel: v.snippet.channelTitle,
-      channelId: v.snippet.channelId || channelId,
-      thumb: v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.high?.url || "",
-    })),
+    items: filtered,
     openUrl: items.length >= 30 ? `https://www.youtube.com/channel/${channelId}` : null,
     channelId,
   };
@@ -1335,12 +1623,7 @@ if (playBtn) playBtn.addEventListener("click", handleDirectPlay);
 if (mainInputEl)
   mainInputEl.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
-    const id = parseVideoId(mainInputEl.value);
-    if (id) {
-      handleDirectPlay();
-    } else {
-      handleSearch();
-    }
+    handleSearch();
   });
 
 if (signOutEl) signOutEl.addEventListener("click", logout);
@@ -1432,6 +1715,9 @@ window.addEventListener("beforeunload", () => {
 async function initApp() {
   await initToken();
   await ensureFreshToken();
+  pruneBlockedEmbeds();
+  saveBlockedEmbeds();
+  startEmbedPruneTimer();
   if (state.selectedId && !state.videos.find((v) => v.id === state.selectedId)) {
     state.selectedId = null;
   }

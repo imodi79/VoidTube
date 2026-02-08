@@ -19,10 +19,16 @@ function loadLocalConfig() {
 }
 
 const fileCfg = loadLocalConfig();
+const debugEnv = process.env.YT_DEBUG;
+const debugConfig =
+  typeof fileCfg.debug === "boolean"
+    ? fileCfg.debug
+    : debugEnv === "1" || debugEnv === "true";
 const APP_CONFIG = {
   clientId: fileCfg.clientId || process.env.YT_CLIENT_ID || "",
   clientSecret: fileCfg.clientSecret || process.env.YT_CLIENT_SECRET || "",
   apiKey: fileCfg.apiKey || process.env.YT_API_KEY || "",
+  debug: Boolean(debugConfig),
 };
 const APP_NAME = "VoidTube";
 const ICON_PATH = path.join(__dirname, "..", "resource", "logo_sign.svg");
@@ -71,7 +77,7 @@ ipcMain.handle("playlist:export", async (_evt, data) => {
     if (!data) return { canceled: true };
     const res = await dialog.showSaveDialog({
       title: "Export playlist",
-      defaultPath: "yt-desk-playlist.json",
+      defaultPath: "voidTube_playlist.json",
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (res.canceled || !res.filePath) return { canceled: true };
@@ -142,6 +148,7 @@ function loadWindowState() {
 
 function writeWindowState(state) {
   try {
+    fs.mkdirSync(path.dirname(getWindowStatePath()), { recursive: true });
     fs.writeFileSync(getWindowStatePath(), JSON.stringify(state), "utf-8");
   } catch (_) {
     // ignore
@@ -230,7 +237,9 @@ function createWindow() {
   });
 
   win.loadURL(`http://127.0.0.1:${staticPort}/index.html`);
-  win.webContents.openDevTools({ mode: "detach" });
+  if (APP_CONFIG.debug) {
+    win.webContents.openDevTools({ mode: "detach" });
+  }
   mainWindow = win;
 
   const saveState = () => {
@@ -296,6 +305,15 @@ function createTray() {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
+  }
+});
+
+app.on("before-quit", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const bounds = mainWindow.isMaximized()
+      ? mainWindow.getNormalBounds()
+      : mainWindow.getBounds();
+    writeWindowState({ ...bounds, isMaximized: mainWindow.isMaximized() });
   }
 });
 
