@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoidTube</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="dragband"></div>
+    <div id="app">
+      <aside class="sidebar sidebar--left">
+        <div class="brand">
+          <img src="./assets/logo.svg" alt="VoidTube" />
+        </div>
+        <header class="left-header">
+          <div class="input-group">
+            <input
+              id="mainInput"
+              type="text"
+              placeholder="Search / URL / ID"
+              autocomplete="off"
+              aria-label="Search or paste a YouTube URL or ID"
+            />
+            <button id="searchBtn" class="icon-btn ghost-button" aria-label="Search" title="Search">
+              <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            </button>
+            <button id="playBtn" class="icon-btn primary-btn" aria-label="Play" title="Play">
+              <i class="fa-brands fa-youtube" aria-hidden="true"></i>
+            </button>
+          </div>
+        </header>
+        <div class="volume-row">
+          <label for="volumeSlider">Volume</label>
+          <input id="volumeSlider" type="range" min="0" max="100" step="1" value="70" />
+        </div>
+        <input
+          id="historyFilter"
+          class="history-filter"
+          type="text"
+          placeholder="Filter played videos"
+          autocomplete="off"
+          aria-label="Filter played videos"
+        />
+        <section class="history-list" id="historyList"></section>
+        <div class="history-actions">
+          <button id="exportBtn" class="ghost-button small" title="Export history to JSON">
+            Export
+          </button>
+          <button id="importBtn" class="ghost-button small" title="Import history from JSON">
+            Import
+          </button>
+          <button
+            id="clearHistory"
+            class="ghost-button small danger"
+            title="Clear history (cannot be undone)"
+          >
+            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+          </button>
+        </div>
+      </aside>
+      <main class="content">
+        <div class="content__body" id="playerArea">
+          <div class="empty-state">Add your first video, then play from the list.</div>
+          <div class="signin" id="signinScreen">
+            <div class="signin-card">
+              <button id="signinBtn">Sign in</button>
+              <div id="signinStatus" class="signin-status"></div>
+              <div class="code-box">
+                <div id="deviceCode" class="code-value" title="Click to copy"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button id="viewToggle" class="view-toggle" aria-label="View full" title="View full"></button>
+      </main>
+      <aside class="sidebar sidebar--right">
+        <header class="sidebar__header sticky right-header">
+          <input
+            id="subsFilter"
+            class="subs-filter"
+            type="text"
+            placeholder="Filter channels"
+            autocomplete="off"
+            aria-label="Filter channels"
+          />
+          <button
+            id="signOut"
+            class="primary-btn small icon-btn"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+          </button>
+        </header>
+        <section id="subsList" class="subs-list"></section>
+      </aside>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>
