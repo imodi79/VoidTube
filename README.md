@@ -1,3 +1,5 @@
+![VoidTube Logo](gitlogo.webp)
+
 # YT Desk (Electron mini-klienst)
 
 Egyszerű desktop alkalmazás, amely több YouTube-lejátszót kezel: bal oldali listába felvehetsz tetszőleges videót (URL vagy ID), a fő ablakban egy videót nézel vagy grid módban több lejátszó is futhat, clean módban eltűnik minden UI.
