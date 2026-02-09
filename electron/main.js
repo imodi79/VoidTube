@@ -2,8 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const url = require("url");
-const { app, BrowserWindow, nativeTheme, ipcMain, dialog, Tray, Menu, nativeImage, screen } =
-  require("electron");
+const { app, BrowserWindow, nativeTheme, ipcMain, dialog, screen } = require("electron");
 
 function loadLocalConfig() {
   const cfgPath = path.join(__dirname, "..", "config.local.json");
@@ -107,7 +106,6 @@ ipcMain.handle("playlist:import", async () => {
 
 let staticServer;
 let staticPort;
-let tray;
 let mainWindow;
 
 function getWindowStatePath() {
@@ -269,7 +267,6 @@ app.whenReady().then(async () => {
   app.setName(APP_NAME);
   await startStaticServer();
   createWindow();
-  createTray();
   if (process.platform === "darwin" && app.dock) {
     app.dock.setIcon(ICON_PATH);
   }
@@ -280,29 +277,6 @@ app.whenReady().then(async () => {
     }
   });
 });
-
-function createTray() {
-  if (tray) return;
-  const icon = nativeImage.createFromPath(ICON_PATH);
-  tray = new Tray(icon);
-  tray.setToolTip(APP_NAME);
-  const menu = Menu.buildFromTemplate([
-    {
-      label: "Show",
-      click: () => {
-        if (mainWindow) mainWindow.show();
-      },
-    },
-    {
-      label: "Quit",
-      click: () => app.quit(),
-    },
-  ]);
-  tray.setContextMenu(menu);
-  tray.on("double-click", () => {
-    if (mainWindow) mainWindow.show();
-  });
-}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

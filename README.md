@@ -1,8 +1,35 @@
-# <img src="gitlogo.webp" alt="VoidTube" width="120" height="30" /> VoidTube
+<h1 align="center">VoidTube</h1>  
 
-VoidTube is a focused desktop YouTube player. It keeps playback clean, puts your channels on the right, and a persistent play history on the left.
+<p align="center">
+  <img src="https://img.shields.io/github/license/imodi79/VoidTube?style=flat" alt="License" />
+  <img
+    src="https://img.shields.io/github/v/release/imodi79/VoidTube?display_name=tag&sort=semver&style=flat"
+    alt="Latest release"
+  />
+  <img src="https://img.shields.io/github/downloads/imodi79/VoidTube/total?style=flat" alt="Downloads" />
+  <img
+    src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-1f6feb?style=flat"
+    alt="Platform macOS Windows Linux"
+  />
+  <img src="https://img.shields.io/badge/Built%20with-Electron-47848f?style=flat" alt="Built with Electron" />
+  <img src="https://img.shields.io/badge/YouTube-Player-ff0000?style=flat" alt="YouTube Player" />
+</p>
 
-If you like the app and want to support it, feel free to buy me a coffee (PayPal link coming soon).
+---
+
+<p align="center">
+🎬 VoidTube is a focused desktop YouTube player. It keeps playback clean, puts your channels on the right, and a persistent play history on the left.
+</p>
+
+![VoidTube Screenshot](resource/screenshot1.webp)
+
+
+<p align="center">
+You can use this project for anything and for as long as you want. I am happy if it helps you.
+If you like the app and want to support it, feel free to <a href="https://paypal.me/istvanmodi">buy me a coffee</a> ☕.
+Donations are optional. This is not a paid product and donations do not unlock features or services. ❤️
+</p>
+
 
 ---
 
@@ -11,6 +38,7 @@ If you like the app and want to support it, feel free to buy me a coffee (PayPal
 - [What this app is for](#what-this-app-is-for)
 - [How it works (short)](#how-it-works-short)
 - [Screenshots](#screenshots)
+- [Download (prebuilt)](#download-prebuilt)
 - [Quick start](#quick-start)
 - [Build (step by step)](#build-step-by-step)
 - [Google Cloud setup (why this is needed)](#google-cloud-setup-why-this-is-needed)
@@ -25,12 +53,12 @@ If you like the app and want to support it, feel free to buy me a coffee (PayPal
 
 VoidTube is a clean, distraction‑free way to watch YouTube on desktop:
 
-- Play a single video in the main view, or browse search/channel results in a grid.
-- Keep a local play history with resume position per video.
-- Control volume globally from one slider.
-- Browse your subscriptions in the right sidebar (ordered by your clicks / recency).
-- Toggle a full, clean view for distraction‑free watching.
-- If a video cannot be embedded, open it in the browser instead.
+- ▶️ Play a single video in the main view, or browse search/channel results in a grid.
+- 🧠 Keep a local play history with resume position per video.
+- 🔊 Control volume globally from one slider.
+- 📺 Browse your subscriptions in the right sidebar (ordered by your clicks / recency).
+- 🧼 Toggle a full, clean view for distraction‑free watching.
+- 🌐 If a video cannot be embedded, open it in the browser instead.
 
 ## How it works (short)
 
@@ -43,15 +71,43 @@ Auth is handled via the OAuth device code flow (a safe, browser‑based login).
 
 <table border="0" cellspacing="10" cellpadding="0">
   <tr>
-    <td colspan="2"><img src="resource/screenshot1.webp" alt="VoidTube Demo"></td>
-  </tr>
-  <tr>
     <td><img src="resource/screenshot3.webp" alt="VoidTube Demo"></td>
     <td><img src="resource/screenshot2.webp" alt="VoidTube Demo"></td>
   </tr>
 </table>
 
-_Demo images._
+## Download (prebuilt)
+
+⬇️ Want the finished app without building? Grab the installers from the
+**[v1.0.0 release](https://github.com/imodi79/VoidTube/releases/tag/v1.0.0)**.
+
+- macOS: `.dmg`
+- Windows: `.exe` (NSIS installer)
+- Linux: `.AppImage` or `.deb`
+
+⚠️ You still need your own Google Cloud credentials to sign in and use search/subscriptions. See the setup section below.
+
+### Publish GitHub Releases (maintainers)
+
+The installer files are large, so keep them out of the repo and upload them to GitHub Releases instead.
+
+Step-by-step:
+
+1) Build on each OS (or CI) so you get native installers:
+   - `npm run build:mac`
+   - `npm run build:win`
+   - `npm run build:linux`
+2) In `dist/`, keep the installer files and ignore `*-unpacked` folders and `builder-debug.yml`.
+3) Create a tag and push it:
+   - `git tag v1.0.0`
+   - `git push --tags`
+4) On GitHub, go to **Releases** -> **Draft a new release**.
+5) Pick the tag, add a title/notes, then upload the installer files from `dist/`:
+   - macOS `.dmg`
+   - Windows `.exe`
+   - Linux `.AppImage` and `.deb`
+6) Publish the release. The downloads will appear on the Releases page.
+
 
 ## Quick start
 
@@ -81,6 +137,8 @@ npm run build:linux
 ```
 
 Build output goes to `dist/`.
+
+ℹ️ Installers are OS-specific. For macOS builds you need macOS (or CI). Cross-build support is limited.
 
 ## Google Cloud setup (why this is needed)
 
@@ -141,7 +199,6 @@ You have two options:
 
 ## Project status / maintenance
 
-You can use this project for anything and for as long as you want. I am happy if it helps you.
 This is a personal project, so do not expect heavy maintenance. I may fix serious bugs from time to time.
 Contributions and forks are welcome.
 

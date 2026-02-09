@@ -1,9 +1,12 @@
 {
-  "name": "yt",
+  "name": "voidtube",
   "version": "1.0.0",
   "main": "electron/main.js",
   "description": "Minimal desktop multi-player for YouTube with clean mode.",
-  "author": "modiistvan-hunor",
+  "author": {
+    "name": "Módi István-Hunor",
+    "email": "modi.istvan@gmail.com"
+  },
   "scripts": {
     "start": "electron .",
     "dev": "electron .",

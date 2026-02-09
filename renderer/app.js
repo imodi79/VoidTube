@@ -9,6 +9,7 @@ const importBtnEl = document.getElementById("importBtn");
 const clearHistoryEl = document.getElementById("clearHistory");
 const playerArea = document.getElementById("playerArea");
 const viewToggleEl = document.getElementById("viewToggle");
+const backBtnEl = document.getElementById("backBtn");
 const subsListEl = document.getElementById("subsList");
 const subsFilterEl = document.getElementById("subsFilter");
 const signinScreenEl = document.getElementById("signinScreen");
@@ -28,6 +29,7 @@ const CHANNEL_CLICKS_KEY = "yt-desk-channel-clicks-v1";
 const CONFIG_STORAGE_KEY = "voidtube-config-v1";
 const NEW_WINDOW_MS = 7 * 24 * 3600 * 1000; // 7 days for new badge
 const MAX_HISTORY = 10000;
+const VIEW_HISTORY_LIMIT = 100;
 const BASE_CONFIG = window.appBridge?.config || { clientId: "", clientSecret: "", apiKey: "", debug: false };
 let runtimeConfig = buildRuntimeConfig();
 const DEBUG =
@@ -43,6 +45,7 @@ const ICON_MUTE = '<i class="fa-solid fa-volume-xmark" aria-hidden="true"></i>';
 const ICON_UNMUTE = '<i class="fa-solid fa-volume-high" aria-hidden="true"></i>';
 const ICON_COPY = '<i class="fa-regular fa-copy" aria-hidden="true"></i>';
 const ICON_CLOSE = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+const ICON_BACK = '<i class="fa-solid fa-arrow-left" aria-hidden="true"></i>';
 
 const state = loadState();
 let player = null;
@@ -58,6 +61,7 @@ let lastDeviceCode = "";
 let channelQueue = null;
 let uiMessage = "";
 let uiMessageAction = null;
+let viewHistory = [];
 let playerShellEl = null;
 let playerHolderEl = null;
 let gridWrapEl = null;
@@ -142,6 +146,112 @@ function getRegionCode() {
 function nextDisplayRequestId() {
   displayRequestId += 1;
   return displayRequestId;
+}
+
+function cloneDisplayThumbs(displayThumbs) {
+  const safe = displayThumbs || {};
+  const items = Array.isArray(safe.items)
+    ? safe.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        channel: item.channel,
+        channelId: item.channelId,
+        thumb: item.thumb,
+      }))
+    : [];
+  return {
+    items,
+    openUrl: safe.openUrl || null,
+    channelId: safe.channelId || null,
+  };
+}
+
+function getViewMode() {
+  if (state.displayThumbs?.items?.length) return "grid";
+  if (getActiveVideo()) return "player";
+  return "message";
+}
+
+function buildViewSnapshot() {
+  return {
+    mode: getViewMode(),
+    displayThumbs: cloneDisplayThumbs(state.displayThumbs),
+    uiMessage,
+    uiMessageAction: uiMessageAction ? { ...uiMessageAction } : null,
+    selectedId: state.selectedId || null,
+  };
+}
+
+function getViewSignature(snapshot) {
+  const ids = snapshot.displayThumbs?.items?.map((item) => item.id).join(",") || "";
+  const action = snapshot.uiMessageAction
+    ? `${snapshot.uiMessageAction.label || ""}|${snapshot.uiMessageAction.url || ""}`
+    : "";
+  return `${snapshot.mode}|${snapshot.selectedId || ""}|${snapshot.displayThumbs?.channelId || ""}|${
+    snapshot.displayThumbs?.openUrl || ""
+  }|${ids}|${snapshot.uiMessage || ""}|${action}`;
+}
+
+function updateBackButtonState() {
+  if (!backBtnEl) return;
+  const show = hasValidSession() && viewHistory.length > 0;
+  backBtnEl.style.display = show ? "inline-flex" : "none";
+  if (!backBtnEl.innerHTML) {
+    backBtnEl.innerHTML = ICON_BACK;
+  }
+}
+
+function pushViewHistory({ force = false } = {}) {
+  if (!hasValidSession()) return;
+  if (
+    !force &&
+    !state.displayThumbs?.items?.length &&
+    !uiMessage &&
+    !uiMessageAction
+  ) {
+    return;
+  }
+  const snapshot = buildViewSnapshot();
+  const signature = getViewSignature(snapshot);
+  const last = viewHistory[viewHistory.length - 1];
+  if (last?.signature === signature) return;
+  viewHistory.push({ ...snapshot, signature });
+  if (viewHistory.length > VIEW_HISTORY_LIMIT) {
+    viewHistory.shift();
+  }
+  updateBackButtonState();
+}
+
+function clearViewHistory() {
+  viewHistory = [];
+  updateBackButtonState();
+}
+
+function restoreViewSnapshot(snapshot) {
+  if (!snapshot) return;
+  state.displayThumbs = cloneDisplayThumbs(snapshot.displayThumbs);
+  uiMessage = snapshot.uiMessage || "";
+  uiMessageAction = snapshot.uiMessageAction || null;
+
+  if (snapshot.mode === "player") {
+    const exists = snapshot.selectedId && state.videos.some((v) => v.id === snapshot.selectedId);
+    state.selectedId = exists ? snapshot.selectedId : null;
+  } else if (snapshot.mode === "message") {
+    state.selectedId = null;
+    activeLoadId = null;
+    if (player && playerReady) {
+      player.stopVideo();
+    }
+  }
+  nextDisplayRequestId();
+  render();
+}
+
+function goBack() {
+  if (!hasValidSession() || viewHistory.length === 0) return;
+  const snapshot = viewHistory.pop();
+  updateBackButtonState();
+  restoreViewSnapshot(snapshot);
 }
 
 function filterBlockedEmbeds(items) {
@@ -405,6 +515,7 @@ function handleAuthExpired(message) {
 }
 
 function showPlaybackMessage(message, action = null) {
+  pushViewHistory({ force: true });
   uiMessage = message || "Video not found.";
   uiMessageAction = action;
   state.displayThumbs = { items: [], openUrl: null, channelId: null };
@@ -736,6 +847,7 @@ async function loadVideoByEntry(entry, { autoplay = true, force = false } = {}) 
 
 async function playVideo(entry) {
   if (!entry || !entry.id) return;
+  pushViewHistory();
   recordPosition(true);
   uiMessage = "";
   uiMessageAction = null;
@@ -780,11 +892,13 @@ function render() {
   signinScreenEl.style.display = authed ? "none" : "flex";
   if (!authed) {
     state.displayThumbs = { items: [], openUrl: null, channelId: null };
+    clearViewHistory();
   }
   renderHistoryList();
   renderPlayerArea();
   renderAuthState();
   updateViewToggle();
+  updateBackButtonState();
   persist();
 }
 
@@ -1416,6 +1530,7 @@ async function handleSearch() {
     }
     return;
   }
+  pushViewHistory({ force: true });
   if (mainInputEl) mainInputEl.value = "";
   state.displayThumbs = { items: [], openUrl: null, channelId: null };
   const requestId = nextDisplayRequestId();
@@ -1608,6 +1723,7 @@ async function requestSubscriptions() {
 }
 
 async function addLatestFromChannel(channelId, channelTitle = "") {
+  pushViewHistory({ force: true });
   const cacheHit = channelCache[channelId];
   const now = Date.now();
   const maxAge = 3 * 60 * 60 * 1000; // 3 hours
@@ -1748,6 +1864,12 @@ if (subsFilterEl)
 if (viewToggleEl)
   viewToggleEl.addEventListener("click", () => {
     setClean(!state.clean);
+  });
+
+if (backBtnEl)
+  backBtnEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    goBack();
   });
 
 window.addEventListener("keydown", (e) => {
