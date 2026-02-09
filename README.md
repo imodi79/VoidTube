@@ -1,12 +1,11 @@
 <h1 align="center">VoidTube</h1>  
 
 <p align="center">
-  <img src="https://img.shields.io/github/license/imodi79/VoidTube?style=flat" alt="License" />
+  <img src="https://img.shields.io/github/license/imodi79/voidtube?style=flat&cacheSeconds=300" alt="License" />
   <img
-    src="https://img.shields.io/github/v/release/imodi79/VoidTube?display_name=tag&sort=semver&style=flat"
+    src="https://img.shields.io/github/v/release/imodi79/voidtube?display_name=tag&sort=semver&style=flat&cacheSeconds=300"
     alt="Latest release"
   />
-  <img src="https://img.shields.io/github/downloads/imodi79/VoidTube/total?style=flat" alt="Downloads" />
   <img
     src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-1f6feb?style=flat"
     alt="Platform macOS Windows Linux"
