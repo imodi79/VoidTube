@@ -86,28 +86,6 @@ Auth is handled via the OAuth device code flow (a safe, browser‑based login).
 
 ⚠️ You still need your own Google Cloud credentials to sign in and use search/subscriptions. See the setup section below.
 
-### Publish GitHub Releases (maintainers)
-
-The installer files are large, so keep them out of the repo and upload them to GitHub Releases instead.
-
-Step-by-step:
-
-1) Build on each OS (or CI) so you get native installers:
-   - `npm run build:mac`
-   - `npm run build:win`
-   - `npm run build:linux`
-2) In `dist/`, keep the installer files and ignore `*-unpacked` folders and `builder-debug.yml`.
-3) Create a tag and push it:
-   - `git tag v1.0.0`
-   - `git push --tags`
-4) On GitHub, go to **Releases** -> **Draft a new release**.
-5) Pick the tag, add a title/notes, then upload the installer files from `dist/`:
-   - macOS `.dmg`
-   - Windows `.exe`
-   - Linux `.AppImage` and `.deb`
-6) Publish the release. The downloads will appear on the Releases page.
-
-
 ## Quick start
 
 ```bash
