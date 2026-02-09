@@ -43,12 +43,11 @@ Auth is handled via the OAuth device code flow (a safe, browser‑based login).
 
 <table border="0" cellspacing="10" cellpadding="0">
   <tr>
-    <td><img src="gitlogo.webp" alt="VoidTube Demo"></td>
-    <td><img src="gitlogo.webp" alt="VoidTube Demo"></td>
+    <td colspan="2"><img src="resource/screenshot1.webp" alt="VoidTube Demo"></td>
   </tr>
   <tr>
-    <td><img src="gitlogo.webp" alt="VoidTube Demo"></td>
-    <td><img src="gitlogo.webp" alt="VoidTube Demo"></td>
+    <td><img src="resource/screenshot3.webp" alt="VoidTube Demo"></td>
+    <td><img src="resource/screenshot2.webp" alt="VoidTube Demo"></td>
   </tr>
 </table>
 
